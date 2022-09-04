@@ -1,5 +1,5 @@
 import path = require('path');
-import { commands, ExtensionContext, Uri, window, workspace } from 'vscode';
+import { commands, ExtensionContext, Uri, window, workspace, WorkspaceEdit } from 'vscode';
 import { commandsMap } from './commands';
 import { generateResources } from './generate';
 import { resourcesMap } from './resources';
@@ -17,7 +17,9 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
             rootPath = workspace.workspaceFolders[0].uri.fsPath;
         }
         if (!rootPath) {
-            await window.showErrorMessage('Could not resolve root path. Please open a file first or use the context menu!');
+            await window.showErrorMessage(
+                'Could not resolve root path. Please open a file first or use the context menu!'
+            );
             return;
         }
 
@@ -27,7 +29,7 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
         let resources: Resource[] = [];
 
         if (command.resources.length > 0) {
-            command.resources.forEach(type => {
+            command.resources.forEach((type) => {
                 const resource = resourcesMap.get(type);
                 if (resource) {
                     resources.push(resource);
@@ -36,7 +38,7 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
         }
 
         if (!resources?.length) {
-            const opts = [
+            const options = [
                 ResourceType.PAGE,
                 ResourceType.PAGE_LOAD,
                 ResourceType.PAGE_SERVER,
@@ -44,7 +46,7 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
                 ResourceType.LAYOUT_LOAD,
                 ResourceType.LAYOUT_SERVER,
                 ResourceType.ERROR
-            ].map(type => {
+            ].map((type) => {
                 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
                 const resource = resourcesMap.get(type)!;
                 // const iconName = resource.type === FileType.PAGE ? 'svelte' : isTs ? 'typescript' : 'javascript';
@@ -57,15 +59,14 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
                     value: resource
                 };
             });
-            console.log(opts);
 
-            const result = await window.showQuickPick(opts, { canPickMany: true });
+            const result = await window.showQuickPick(options, { canPickMany: true });
 
             if (!result) {
                 return;
             }
 
-            resources = result.map(res => res.value);
+            resources = result.map((res) => res.value);
         }
 
         const itemPath = await window.showInputBox({
@@ -89,6 +90,8 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
             scriptExtension
         };
 
+        checkParams([Uri.parse(fullPath)]);
+
         const writtenFiles = await generateResources(config);
         if (writtenFiles[0]) {
             const openUri = Uri.parse(writtenFiles[0]);
@@ -100,4 +103,48 @@ export function addGenerateKitFilesCommand(context: ExtensionContext) {
         const command = commands.registerCommand(key, (args) => showDynamicDialog(args, value));
         context.subscriptions.push(command);
     });
+
+    workspace.onDidCreateFiles((event) => {
+        checkParams(event.files);
+    });
+    workspace.onDidRenameFiles((event) => {
+        checkParams(event.files.map(({ newUri }) => newUri));
+    });
+}
+
+async function checkParams(uris: readonly Uri[]) {
+    const matchers = new Set<string>();
+    uris.forEach((uri) => {
+        const params = uri.path.split('/').filter((p) => p.startsWith('[') && p.endsWith(']'));
+        params.forEach((param) => {
+            const matcher = param.slice(1, -1).split('=')[1];
+            if (!matcher) {
+                return;
+            }
+            matchers.add(matcher);
+        });
+    });
+    if (matchers.size === 0) {
+        return;
+    }
+
+    const options = ['Yes', 'No', 'Never', 'Always'];
+    const result = await window.showQuickPick(options);
+
+    switch (result) {
+        case 'Yes':
+            matchers.forEach((matcher) => createMatcher(matcher));
+            break;
+        case 'No':
+            break;
+        case 'Never':
+            break;
+        case 'Always':
+            break;
+    }
+}
+
+function createMatcher(name: string) {
+    // const edit = new WorkspaceEdit();
+    // edit.createFile();
 }
